@@ -1,0 +1,492 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// User roles enum
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  HR
+  FINANCIAL_MANAGER
+  INVENTORY_MANAGER
+  BOOKING_MANAGER
+  EMPLOYEE
+}
+
+// Employee status enum
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+  TERMINATED
+}
+
+// Attendance status enum
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  SICK_LEAVE
+  ANNUAL_LEAVE
+}
+
+// Work shift enum
+enum WorkShift {
+  MORNING
+  EVENING
+  NIGHT
+  FULL_DAY
+}
+
+// Revenue types enum
+enum RevenueType {
+  DINE_IN
+  TAKEAWAY
+  ONLINE_ORDER
+  FACILITY_RENTAL
+}
+
+// Expense categories enum
+enum ExpenseCategory {
+  STOCK
+  UTILITIES
+  STAFF_MEALS
+  MAINTENANCE
+  OTHER
+}
+
+// Booking status enum
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+// Booking types enum
+enum BookingType {
+  INDOOR_DINING
+  OUTDOOR_DINING
+  INDOOR_LESEHAN
+  OUTDOOR_LESEHAN
+  SINGING_ROOM
+  PUSPAWARNA_AUDITORIUM
+  PUSPAWARNA_CLASS_ROOM
+}
+
+// Project status enum
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+// Project types enum
+enum ProjectType {
+  MARKETING_PROGRAM
+  CRM_PROGRAM
+  NEW_MENU_DEVELOPMENT
+}
+
+// User model for authentication
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  password  String
+  role      UserRole  @default(EMPLOYEE)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  employee  Employee?
+  sessions  Session[]
+  accounts  Account[]
+
+  @@map("users")
+}
+
+// Session model for NextAuth
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// Account model for NextAuth
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+// Verification token model for NextAuth
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Outlet model for business locations
+model Outlet {
+  id          String @id @default(cuid())
+  code        String @unique // WK-JTN, WK-KCR, BM-JTN
+  name        String
+  address     String
+  phone       String?
+  email       String?
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  employees   Employee[]
+  financialRecords FinancialRecord[]
+  inventoryItems InventoryItem[]
+  bookings Booking[]
+  activityLogs ActivityLog[]
+
+  @@map("outlets")
+}
+
+// Employee model with comprehensive HR data
+model Employee {
+  id            String         @id @default(cuid())
+  userId        String?        @unique
+  employeeCode  String         @unique
+  firstName     String
+  lastName      String
+  email         String         @unique
+  phone         String?
+  position      String
+  department    String
+  outletId      String
+  status        EmployeeStatus @default(ACTIVE)
+  joinDate      DateTime
+  contractEnd   DateTime?
+  salary        Float?
+  photo         String?        // URL to profile photo
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  user          User?          @relation(fields: [userId], references: [id])
+  outlet        Outlet         @relation(fields: [outletId], references: [id])
+  attendances   Attendance[]
+  appraisals    Appraisal[]
+  documents     HrDocument[]
+
+  @@map("employees")
+}
+
+// Attendance model for tracking employee presence
+model Attendance {
+  id           String           @id @default(cuid())
+  employeeId   String
+  outletId     String
+  date         DateTime
+  checkInTime  DateTime?
+  checkOutTime DateTime?
+  status       AttendanceStatus
+  shift        WorkShift
+  notes        String?
+  location     String?         // GPS location if available
+  qrCode       String?         // QR code used for check-in
+  pin          String?         // PIN used for check-in
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  // Relations
+  employee     Employee         @relation(fields: [employeeId], references: [id])
+  outlet       Outlet           @relation(fields: [outletId], references: [id])
+
+  @@unique([employeeId, date])
+  @@map("attendances")
+}
+
+// Monthly appraisal model
+model Appraisal {
+  id          String   @id @default(cuid())
+  employeeId  String
+  month       Int      // 1-12
+  year        Int
+  attendanceScore Float?
+  taskCompletionScore Float?
+  qualityScore Float?
+  initiativeScore Float?
+  teamworkScore Float?
+  totalScore   Float?
+  notes       String?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  employee    Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, month, year])
+  @@map("appraisals")
+}
+
+// HR Documents (SOPs, Memos, Warning Letters)
+model HrDocument {
+  id          String   @id @default(cuid())
+  employeeId  String
+  title       String
+  type        String   // SOP, MEMO, WARNING_LETTER, etc.
+  content     String?  @db.Text
+  fileUrl     String?  // URL to uploaded file
+  fileName    String?
+  issuedBy    String?
+  issuedAt    DateTime?
+  effectiveUntil DateTime?
+  status      String   @default("ACTIVE") // ACTIVE, EXPIRED, REVOKED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  employee    Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("hr_documents")
+}
+
+// Financial record model for daily reporting
+model FinancialRecord {
+  id            String         @id @default(cuid())
+  outletId      String
+  date          DateTime
+  shift         WorkShift
+  cashierId     String?
+  revenueDineIn Float          @default(0)
+  revenueTakeaway Float        @default(0)
+  revenueOnline  Float         @default(0)
+  revenueFacility Float       @default(0)
+  totalRevenue  Float          @default(0)
+  expenseStock  Float          @default(0)
+  expenseUtilities Float       @default(0)
+  expenseStaffMeals Float     @default(0)
+  expenseMaintenance Float    @default(0)
+  expenseOther  Float          @default(0)
+  totalExpense  Float          @default(0)
+  netProfit     Float          @default(0)
+  customerCount Int            @default(0)
+  transactionCount Int         @default(0)
+  notes         String?        @db.Text
+  status        String         @default("PENDING") // PENDING, APPROVED, REJECTED
+  approvedBy    String?
+  approvedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  outlet        Outlet         @relation(fields: [outletId], references: [id])
+
+  @@unique([outletId, date, shift])
+  @@map("financial_records")
+}
+
+// Inventory item model
+model InventoryItem {
+  id            String   @id @default(cuid())
+  outletId      String
+  name          String
+  description   String?
+  category      String
+  sku           String?
+  barcode       String?
+  qrCode        String?
+  quantity      Float    @default(0)
+  unit          String   // pcs, kg, liter, etc.
+  minStock      Float    @default(0)
+  maxStock      Float?
+  purchasePrice Float?
+  sellingPrice  Float?
+  location      String?  // Physical location in the outlet
+  condition     String   @default("GOOD") // GOOD, DAMAGED, MAINTENANCE
+  lastChecked   DateTime @default(now())
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  outlet        Outlet   @relation(fields: [outletId], references: [id])
+  maintenanceLogs MaintenanceLog[]
+
+  @@map("inventory_items")
+}
+
+// Maintenance log model
+model MaintenanceLog {
+  id            String   @id @default(cuid())
+  inventoryId   String
+  date          DateTime
+  type          String   // CLEANING, REPAIR, REPLACEMENT, INSPECTION
+  description   String   @db.Text
+  performedBy   String   // Employee name or ID
+  cost          Float?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  // Relations
+  inventory     InventoryItem @relation(fields: [inventoryId], references: [id])
+
+  @@map("maintenance_logs")
+}
+
+// Booking model for facility reservations
+model Booking {
+  id            String       @id @default(cuid())
+  outletId      String
+  type          BookingType
+  customerName  String
+  customerPhone String?
+  customerEmail String?
+  date          DateTime
+  startTime     DateTime
+  endTime       DateTime
+  participants  Int          @default(1)
+  totalAmount   Float?
+  depositAmount Float?
+  status        BookingStatus @default(PENDING)
+  notes         String?      @db.Text
+  specialRequests String?    @db.Text
+  createdBy     String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  // Relations
+  outlet        Outlet       @relation(fields: [outletId], references: [id])
+
+  @@map("bookings")
+}
+
+// Activity log model for daily tasks and checklists
+model ActivityLog {
+  id            String   @id @default(cuid())
+  outletId      String
+  employeeId    String?
+  date          DateTime
+  taskType      String   // CLEANING, MAINTENANCE, INVENTORY_CHECK, etc.
+  taskName      String
+  description   String   @db.Text
+  status        String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  priority      String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  completedAt   DateTime?
+  photoUrls     String[] // URLs to uploaded photos
+  kwhReading    Float?   // For utility monitoring
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  outlet        Outlet   @relation(fields: [outletId], references: [id])
+
+  @@map("activity_logs")
+}
+
+// Project management model
+model Project {
+  id            String       @id @default(cuid())
+  title         String
+  description   String       @db.Text
+  type          ProjectType
+  status        ProjectStatus @default(PLANNING)
+  startDate     DateTime
+  endDate       DateTime?
+  budget        Float?
+  actualCost    Float?       @default(0)
+  progress      Float        @default(0) // 0-100 percentage
+  managerId     String?
+  teamMembers   String[]     // Array of employee IDs
+  deliverables  String[]     // Array of deliverable names
+  risks         String?      @db.Text
+  mitigation    String?      @db.Text
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@map("projects")
+}
+
+// Menu item model for HPP calculator
+model MenuItem {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  category      String   // FOOD, BEVERAGE, DESSERT, etc.
+  sellingPrice  Float
+  hpp           Float    // Cost of goods sold
+  profitMargin  Float    // Percentage
+  ingredients   String[] // Array of ingredient names
+  allergens     String[] // Array of allergen information
+  status        String   @default("ACTIVE") // ACTIVE, INACTIVE, SEASONAL
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("menu_items")
+}
+
+// Retail product model
+model RetailProduct {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  category      String
+  sku           String?  @unique
+  barcode       String?
+  sellingPrice  Float
+  purchasePrice Float
+  profitMargin  Float    // Percentage
+  stock         Float    @default(0)
+  minStock      Float    @default(0)
+  supplier      String?
+  status        String   @default("ACTIVE") // ACTIVE, INACTIVE, DISCONTINUED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("retail_products")
+}
+
+// System configuration model
+model SystemConfig {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  value         String   @db.Text
+  description   String?
+  category      String
+  isEditable    Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("system_configs")
+}
